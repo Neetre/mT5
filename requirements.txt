@@ -5,3 +5,5 @@ sacrebleu
 tiktoken
 sentencepiece
 python-dotenv
+torch
+transformers[torch]

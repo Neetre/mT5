@@ -12,15 +12,8 @@ import argparse
 import warnings
 import logging
 import transformers
-from datasets import Dataset, concatenate_datasets
-from huggingface_hub import login
-import tempfile
-from dotenv import load_dotenv
+from datasets import Dataset
 
-load_dotenv()
-HF_KEY = os.getenv("HF_KEY")
-
-# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -29,19 +22,23 @@ transformers.logging.set_verbosity_error()
 
 from transformers import MT5Tokenizer
 
+corpus = "CCMatrix"
+src_lang = "en"
+trc_lang = "ko"
+src_full = "English"
+trg_full = "Korean"
+
 # Argument parsing
 parser = argparse.ArgumentParser(description="Download and preprocess OPUS data")
 parser.add_argument("-d", "--data_dir", type=str, default="../data/opus", help="Directory to save the data")
 parser.add_argument("-s", "--shard_size", type=int, default=10**8, help="Size of each shard in tokens")
 parser.add_argument("-n", "--max_pairs", type=int, default=10**7, help="Maximum number of sentence pairs to process")
 parser.add_argument("-b", "--batch_size", type=int, default=1000, help="Number of sentences to process in each batch")
-parser.add_argument("-m", "--max_seq_len", type=int, default=512, help="Maximum sequence length")
-parser.add_argument("--push_to_hub", action="store_true", help="Push the dataset to Hugging Face Hub")
-parser.add_argument("--hf_repo", type=str, default="your-username/your-dataset-name", help="Hugging Face repository name")
+parser.add_argument("-m", "--max_seq_len", type=int, default=128, help="Maximum sequence length")
 parser.add_argument("--num_workers", type=int, default=mp.cpu_count(), help="Number of workers for multiprocessing")
 args = parser.parse_args()
 
-DATA_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', "opus")
+DATA_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', "opus", f"{src_lang}-{trc_lang}")
 os.makedirs(DATA_ROOT, exist_ok=True)
 
 tokenizer = MT5Tokenizer.from_pretrained("google/mt5-base")
@@ -56,47 +53,47 @@ class DatasetIterator:
     def _get_file_pairs(self) -> List[Tuple[str, str]]:
         """Get pairs of English and Korean files."""
         files = os.listdir(self.data_dir)
-        en_files = sorted([f for f in files if f.endswith('.en')])
-        ko_files = sorted([f for f in files if f.endswith('.ko')])
-        if len(en_files) != len(ko_files):
+        src_files = sorted([f for f in files if f.endswith(f'.{src_lang}')])
+        trg_files = sorted([f for f in files if f.endswith(f'.{trc_lang}')])
+        if len(src_files) != len(trg_files):
             raise ValueError("Mismatch in the number of English and Korean files.")
-        return list(zip(en_files, ko_files))
+        return list(zip(src_files, trg_files))
 
     def _count_total_pairs(self) -> int:
         """Count total number of pairs across all files."""
         total = 0
-        for en_file, ko_file in self.file_pairs:
-            with self._open_file_pair(en_file, ko_file) as (en_f, ko_f):
-                total += sum(1 for _ in en_f)
+        for src_file, trg_files in self.file_pairs:
+            with self._open_file_pair(src_file, trg_files) as (src_f, trg_f):
+                total += sum(1 for _ in src_f)
         return total
 
     @contextmanager
-    def _open_file_pair(self, en_file: str, ko_file: str):
+    def _open_file_pair(self, src_file: str, trg_file: str):
         """Context manager to open file pairs."""
         try:
-            with open(os.path.join(self.data_dir, en_file), 'r', encoding='utf-8') as en_f, \
-                 open(os.path.join(self.data_dir, ko_file), 'r', encoding='utf-8') as ko_f:
-                yield en_f, ko_f
+            with open(os.path.join(self.data_dir, src_file), 'r', encoding='utf-8') as src_f, \
+                 open(os.path.join(self.data_dir, trg_file), 'r', encoding='utf-8') as trg_f:
+                yield src_f, trg_f
         except Exception as e:
-            logger.error(f"Error opening file pair {en_file}, {ko_file}: {e}")
+            logger.error(f"Error opening file pair {src_file}, {trg_file}: {e}")
             raise
 
     def __iter__(self) -> Iterator[List[Dict[str, str]]]:
         """Iterate over batches of sentence pairs."""
-        for en_file, ko_file in self.file_pairs:
-            with self._open_file_pair(en_file, ko_file) as (en_f, ko_f):
+        for src_file, trg_file in self.file_pairs:
+            with self._open_file_pair(src_file, trg_file) as (src_f, trg_f):
                 while True:
-                    en_lines = list(islice(en_f, self.batch_size))
-                    ko_lines = list(islice(ko_f, self.batch_size))
+                    src_lines = list(islice(src_f, self.batch_size))
+                    trg_lines = list(islice(trg_f, self.batch_size))
 
-                    if not en_lines or not ko_lines:
+                    if not src_lines or not trg_lines:
                         break
 
-                    if len(en_lines) != len(ko_lines):
-                        logger.warning(f"Mismatch in the number of lines in {en_file} and {ko_file}")
+                    if len(trg_lines) != len(trg_lines):
+                        logger.warning(f"Mismatch in the number of lines in {src_file} and {trg_file}")
                         continue
 
-                    batch = [{"en": en_line.strip(), "ko": ko_line.strip()} for en_line, ko_line in zip(en_lines, ko_lines)]
+                    batch = [{"en": en_line.strip(), "ko": ko_line.strip()} for en_line, ko_line in zip(src_lines, trg_lines)]
                     yield batch
 
 def download_file(url, output_path):
@@ -119,7 +116,7 @@ def download_file(url, output_path):
         logger.error(f"Error downloading file {url}: {e}")
         raise
 
-def download_opus_data(corpus="OpenSubtitles", source_lang="en", target_lang="fi"):
+def download_opus_data(corpus, source_lang, target_lang):
     """Download OPUS data for the specified corpus and languages."""
     api_url = f"http://opus.nlpl.eu/opusapi/?corpus={corpus}&source={source_lang}&target={target_lang}&preprocessing=moses&version=latest"
     try:
@@ -159,7 +156,7 @@ def get_data_dir(output_dir, split):
     os.makedirs(data_dir, exist_ok=True)
     return data_dir
 
-prefix = "translate English to Korean: "
+prefix = f"translate {src_full} to {trg_full}: "
 
 def process_batch_worker(batch: List[Dict[str, str]], max_seq_len: int) -> Dict[str, List]:
     """Tokenize a batch of sentences using the mT5 tokenizer."""
@@ -167,13 +164,12 @@ def process_batch_worker(batch: List[Dict[str, str]], max_seq_len: int) -> Dict[
         input_ids = []
         attention_masks = []
         labels = []
-        en_texts = []
-        ko_texts = []
-
+        src_texts = []
+        trg_texts = []
         for item in batch:
-            if not item.get("en") or not item.get("ko"):
+            if not item.get(src_lang) or not item.get(trc_lang):
                 continue
-            inputs = prefix + item["en"]
+            inputs = prefix + item[src_lang]
             try:
                 en_tokenized = tokenizer(
                     inputs,
@@ -183,7 +179,7 @@ def process_batch_worker(batch: List[Dict[str, str]], max_seq_len: int) -> Dict[
                     return_tensors="pt",
                 )
                 ko_tokenized = tokenizer(
-                    item["ko"],
+                    item[trc_lang],
                     padding="max_length",
                     truncation=True,
                     max_length=max_seq_len,
@@ -193,19 +189,23 @@ def process_batch_worker(batch: List[Dict[str, str]], max_seq_len: int) -> Dict[
                 input_ids.append(en_tokenized["input_ids"].squeeze().tolist())
                 attention_masks.append(en_tokenized["attention_mask"].squeeze().tolist())
                 labels.append(ko_tokenized["input_ids"].squeeze().tolist())
-                en_texts.append(item["en"])
-                ko_texts.append(item["ko"])
+                src_texts.append(inputs)
+                trg_texts.append(item[trc_lang])
 
             except Exception as e:
                 logger.warning(f"Error processing item: {e}")
                 continue
 
         return {
+            "id": "dummy_id",
+            "translation": {
+                f"{src_lang}": src_texts,
+                f"{trc_lang}": trg_texts
+            },
             "input_ids": input_ids,
             "attention_mask": attention_masks,
             "labels": labels,
-            "en_texts": en_texts,
-            "ko_texts": ko_texts
+            
         }
     except Exception as e:
         logger.error(f"Worker process error: {e}")
@@ -213,8 +213,8 @@ def process_batch_worker(batch: List[Dict[str, str]], max_seq_len: int) -> Dict[
             "input_ids": [],
             "attention_mask": [],
             "labels": [],
-            "en_texts": [],
-            "ko_texts": []
+            f"{src_lang}_texts": [],
+            f"{trc_lang}_texts": []
         }
 
 def save_shard(shard: Dict[str, List], output_dir: str, shard_id: int, split: str):
@@ -241,8 +241,8 @@ def preprocess_dataset(data_dir: str, output_dir: str, args):
         "input_ids": [],
         "attention_mask": [],
         "labels": [],
-        "en_texts": [],
-        "ko_texts": []
+        f"{src_lang}_texts": [],
+        f"{trc_lang}_texts": []
     }
     token_count = 0
     shard_id = 0
@@ -291,8 +291,8 @@ def preprocess_dataset(data_dir: str, output_dir: str, args):
                                 "input_ids": [],
                                 "attention_mask": [],
                                 "labels": [],
-                                "en_texts": [],
-                                "ko_texts": []
+                                f"{src_lang}_texts": [],
+                                f"{trc_lang}_texts": []
                             }
                             token_count = 0
                 except mp.TimeoutError:
@@ -344,39 +344,8 @@ def preprocess_dataset(data_dir: str, output_dir: str, args):
         pool.join()
         logger.info("Cleanup completed")
 
-
-def push_to_huggingface(output_dir: str, hf_repo: str):
-    """Push the preprocessed dataset to Hugging Face Hub."""
-    try:
-        shard_files = sorted(
-            [f for f in os.listdir(output_dir) if f.startswith("shard_")],
-            key=lambda x: int(x.split('_')[1].split('.')[0])
-        )
-        
-        datasets = []
-        for shard_file in tqdm(shard_files, desc="Loading shards"):
-            try:
-                dataset = Dataset.load_from_disk(os.path.join(output_dir, shard_file))
-                datasets.append(dataset)
-            except Exception as e:
-                logger.error(f"Error loading shard {shard_file}: {e}")
-                continue
-        
-        if not datasets:
-            raise ValueError("No valid shards found to push to Hub")
-            
-        combined_dataset = concatenate_datasets(datasets)
-        combined_dataset.push_to_hub(hf_repo)
-        logger.info(f"Successfully pushed dataset to Hugging Face Hub: {hf_repo}")
-    except Exception as e:
-        logger.error(f"Error pushing dataset to Hugging Face Hub: {e}")
-        raise
-
 def main():
-    corpus = "CCMatrix"
-    src_lang = "en"
-    trc_lang = "ko"
-    if not os.path.exists(os.path.join(DATA_ROOT, "en-ko.txt.zip")):
+    if not os.path.exists(os.path.join(DATA_ROOT, f"{src_lang}-{trc_lang}.txt.zip")):
         try:
             download_opus_data(corpus=corpus, source_lang=src_lang, target_lang=trc_lang)
         except Exception as e:
@@ -391,13 +360,6 @@ def main():
     except Exception as e:
         logger.error(f"Failed to preprocess dataset: {e}")
         return
-
-    if args.push_to_hub:
-        try:
-            push_to_huggingface(temp_dir, args.hf_repo)
-        except Exception as e:
-            logger.error(f"Failed to push dataset to Hugging Face Hub: {e}")
-            return
 
 if __name__ == "__main__":
     main()

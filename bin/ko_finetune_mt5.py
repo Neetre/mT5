@@ -1,45 +1,40 @@
 from huggingface_hub import login
 from dotenv import load_dotenv
+from transformers import AutoTokenizer
+from transformers import DataCollatorForSeq2Seq
 import os
+import evaluate
+import numpy as np
 load_dotenv()
 
 HF_KEY = os.getenv("HF_KEY")
 login() # HF_KEY 
 
 from datasets import load_dataset
-dataset = load_dataset("Neetree/test_en_ko_opus_CCM")
-train_dataset = dataset["train"]
-val_dataset = dataset["val"]
-# print(train_dataset)
-# print(val_dataset)
-num_rows = len(train_dataset)
-half_rows = num_rows // 2
-split_datasets = train_dataset.train_test_split(test_size=0.95, seed=42)
-train_dataset = split_datasets['train']
-# print(train_dataset)
-
-
-# print(train_dataset[0]['input_ids'][:10])  # Check first 10 tokens
-# print(train_dataset[0]['attention_mask'][:10])
-# print(train_dataset[0]['labels'][:10])
-
-# print(train_dataset[0]["input_ids"])
-
-from transformers import MT5Tokenizer
+dataset = load_dataset("Neetree/raw_enko_opus_CCM")
+dataset = dataset["train"].train_test_split(test_size=0.2)
+print(dataset)
 
 checkpoint = "google/mt5-base"
-tokenizer = MT5Tokenizer.from_pretrained(checkpoint)
+tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
-from transformers import DataCollatorForSeq2Seq
+source_lang = "en"
+target_lang = "ko"
+prefix = "translate English to Korean: "
+
+def preprocess_function(examples):
+    inputs = [prefix + example[source_lang] for example in examples["translation"]]
+    targets = [example[target_lang] for example in examples["translation"]]
+    model_inputs = tokenizer(inputs, text_target=targets, max_length=128, truncation=True)
+    return model_inputs
+
+tokenized_dataset = dataset.map(preprocess_function, batched=True)
+train_dataset = tokenized_dataset["train"]
+val_dataset = tokenized_dataset["test"]
 
 data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=checkpoint)
 
-import evaluate
-
 metric = evaluate.load("sacrebleu")
-
-import numpy as np
-
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
@@ -74,7 +69,7 @@ model = AutoModelForSeq2SeqLM.from_pretrained(checkpoint)
 training_args = Seq2SeqTrainingArguments(
     output_dir="koen_mT5",
     eval_strategy="epoch",
-    learning_rate=1e-5,
+    learning_rate=2e-5,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     warmup_steps=500,

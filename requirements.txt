@@ -2,3 +2,6 @@ transformers
 datasets
 evaluate
 sacrebleu
+tiktoken
+sentencepiece
+python-dotenv

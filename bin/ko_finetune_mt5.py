@@ -1,6 +1,6 @@
 from huggingface_hub import login
 from dotenv import load_dotenv
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoProcessor
 from transformers import DataCollatorForSeq2Seq
 import os
 import evaluate
@@ -16,7 +16,7 @@ dataset = dataset["train"].train_test_split(test_size=0.2)
 print(dataset)
 
 checkpoint = "google/mt5-base"
-processor = AutoTokenizer.from_pretrained(checkpoint)
+processor = AutoProcessor.from_pretrained(checkpoint)
 
 source_lang = "en"
 target_lang = "ko"

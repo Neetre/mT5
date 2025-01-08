@@ -114,19 +114,20 @@ training_args = Seq2SeqTrainingArguments(
     save_strategy="steps",
     save_steps=100,
     learning_rate=2e-5,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
     weight_decay=0.01,
     save_total_limit=3,
     num_train_epochs=2,
     predict_with_generate=True,
-    fp16=False,  # Disable fp16 for debugging
+    fp16=False,  # Disable fp16 for debugging, no because of memory issues
+    bf16=True,
     logging_dir="./logs",
     logging_steps=10,
     report_to=["tensorboard"],
     gradient_checkpointing=True,
-    debug=True,
 )
+
 
 def check_model_updates(model, inputs):
     initial_params = {name: param.clone() for name, param in model.named_parameters()}

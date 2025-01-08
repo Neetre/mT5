@@ -1,0 +1,23 @@
+Example 1:
+Input IDs shape: (77,)
+Labels shape: (139,)
+Decoded input: translate English to Korean: 29 August 1893 U.S. Patent 504,038: "Clasp Locker or Unlocker for Shoes"[17]</s><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad>
+Decoded label: 1893년 8월 29일 미국 특허 504,038 : "Clasp Locker or Unlocker for Shoes"[2]</s>
+Number of non-padding input tokens: 31
+Number of non-padding label tokens: 27
+
+Example 2:
+Input IDs shape: (77,)
+Labels shape: (139,)
+Decoded input: translate English to Korean: These officers mention expressly the double name and give the almost exact nautical location of the island then visited.</s><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad>
+Decoded label: 이 관리들은 명시적으로 이중의 도서명[double name]을 언급하며 당시에 방문한 그 섬의 거의 정확한 해상 위치[nautical location]를 제공한다.</s>
+Number of non-padding input tokens: 35
+Number of non-padding label tokens: 47
+
+Example 3:
+Input IDs shape: (77,)
+Labels shape: (139,)
+Decoded input: translate English to Korean: Everyone wants the future to be better than the present, and that's what we hope to achieve."</s><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad><pad>
+Decoded label: 모든 사람들은 현재보다 미래가 나아지길 바라고 있으며, 그것이 바로 우리가 이루려는 것이다."</s>
+Number of non-padding input tokens: 30
+Number of non-padding label tokens: 30

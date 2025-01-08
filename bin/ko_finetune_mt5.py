@@ -76,13 +76,7 @@ check_tokenization("Hello, how are you?", processor)
 
 data_collator = DataCollatorForSeq2Seq(tokenizer=processor, model=checkpoint)
 
-metric = evaluate.load("sacrebleu")
-
-def postprocess_text(preds, labels):
-    preds = [pred.strip() for pred in preds]
-    labels = [[label.strip()] for label in labels]
-    return preds, labels
-
+metric = evaluate.load("sacrebleu") # sacrebleu for BERTscore 
 
 def compute_metrics(eval_preds):
     preds, labels = eval_preds
@@ -114,13 +108,13 @@ training_args = Seq2SeqTrainingArguments(
     save_strategy="steps",
     save_steps=100,
     learning_rate=2e-5,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
+    per_device_train_batch_size=8, # 16 for A100, oppure 32
+    per_device_eval_batch_size=8,  # 16 for A100, e 16
     weight_decay=0.01,
     save_total_limit=3,
     num_train_epochs=2,
     predict_with_generate=True,
-    fp16=False,  # Disable fp16 for debugging, no because of memory issues
+    fp16=False,  # Disable fp16 for debugging, no because of memory issues, too little for the tokenization
     bf16=True,
     logging_dir="./logs",
     logging_steps=10,

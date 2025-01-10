@@ -9,12 +9,29 @@ import evaluate
 import numpy as np
 load_dotenv()
 
+
+import torch
+import torch.distributed as dist 
+use_cuda = torch.cuda.is_available()
+
+
+def setup_distributed():
+    if 'WORLD_SIZE' in os.environ:
+        dist.init_process_group(backend='nccl')
+        torch.cuda.set_device(int(os.environ['LOCAL_RANK']))
+
+# Call this before creating model and trainer
+setup_distributed()
+
 HF_KEY = os.getenv("HF_KEY")
-login() # HF_KEY 
+login("") # HF_KEY 
 
 dataset = load_dataset("Neetree/raw_enko_opus_CCM")
 dataset = dataset["train"].train_test_split(test_size=0.2)
 print(dataset)
+# new_train_size = len(dataset["train"]) - 24000
+# dataset["train"] = dataset["train"].select(range(new_train_size))
+# print(dataset)
 
 checkpoint = "google/mt5-base"
 processor = AutoTokenizer.from_pretrained(checkpoint)
@@ -60,7 +77,7 @@ def verify_dataset(dataset, processor):
         print(f"Number of non-padding input tokens: {(input_ids != processor.pad_token_id).sum()}")
         print(f"Number of non-padding label tokens: {(labels != -100).sum()}")
 
-verify_dataset(tokenized_dataset["train"], processor)
+# verify_dataset(tokenized_dataset["train"], processor)
 
 
 def check_tokenization(text, tokenizer):
@@ -71,7 +88,7 @@ def check_tokenization(text, tokenizer):
     print(f"Decoded back: {decoded}")
     print(f"Number of tokens: {len(tokens)}")
 
-check_tokenization("Hello, how are you?", processor)
+# check_tokenization("Hello, how are you?", processor)
 
 
 data_collator = DataCollatorForSeq2Seq(tokenizer=processor, model=checkpoint)
@@ -101,6 +118,7 @@ def compute_metrics(eval_preds):
 
 model = AutoModelForSeq2SeqLM.from_pretrained(checkpoint)
 
+
 training_args = Seq2SeqTrainingArguments(
     output_dir="koen_mT5",
     evaluation_strategy="steps",
@@ -108,8 +126,9 @@ training_args = Seq2SeqTrainingArguments(
     save_strategy="steps",
     save_steps=100,
     learning_rate=2e-5,
-    per_device_train_batch_size=8, # 16 for A100, oppure 32
-    per_device_eval_batch_size=8,  # 16 for A100, e 16
+    per_device_train_batch_size=4, # 16 for A100, oppure 32
+    per_device_eval_batch_size=4,  # 16 for A100, e 16
+    gradient_accumulation_steps=4,
     weight_decay=0.01,
     save_total_limit=3,
     num_train_epochs=2,
@@ -120,6 +139,9 @@ training_args = Seq2SeqTrainingArguments(
     logging_steps=10,
     report_to=["tensorboard"],
     gradient_checkpointing=True,
+    ddp_find_unused_parameters=False,
+    dataloader_pin_memory=True,
+    dataloader_num_workers=2,
 )
 
 
@@ -142,9 +164,21 @@ def check_model_updates(model, inputs):
             print(f"{name}: grad_norm={grad_norm:.6f}, param_norm={param_norm:.6f}, initial_param_norm={initial_param_norm:.6f}, param_change_norm={param_change_norm:.6f}")
 
 
+
+
 class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+        
+        # Handle distributed loss
+        if isinstance(loss, torch.Tensor):
+            if loss.dim() > 0:
+                loss = loss.mean()
+            loss = loss.view(1)  # Ensure loss is a 1D tensor
+            
+        if self.args.local_rank != -1:  # If using distributed training
+            loss = loss.to(self.args.device)
+            
         print(f"Current loss: {loss.item()}")
         return (loss, outputs) if return_outputs else loss
 

@@ -47,7 +47,7 @@ def preprocess_function(examples):
     model_inputs = processor(
         inputs,
         text_target=targets,
-        max_length=256,
+        max_length=128,
         padding="max_length",
         truncation=True,
         return_tensors="pt"
@@ -139,9 +139,6 @@ training_args = Seq2SeqTrainingArguments(
     logging_steps=10,
     report_to=["tensorboard"],
     gradient_checkpointing=True,
-    ddp_find_unused_parameters=False,
-    dataloader_pin_memory=True,
-    dataloader_num_workers=2,
 )
 
 
@@ -164,21 +161,9 @@ def check_model_updates(model, inputs):
             print(f"{name}: grad_norm={grad_norm:.6f}, param_norm={param_norm:.6f}, initial_param_norm={initial_param_norm:.6f}, param_change_norm={param_change_norm:.6f}")
 
 
-
-
 class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
-        
-        # Handle distributed loss
-        if isinstance(loss, torch.Tensor):
-            if loss.dim() > 0:
-                loss = loss.mean()
-            loss = loss.view(1)  # Ensure loss is a 1D tensor
-            
-        if self.args.local_rank != -1:  # If using distributed training
-            loss = loss.to(self.args.device)
-            
         print(f"Current loss: {loss.item()}")
         return (loss, outputs) if return_outputs else loss
 

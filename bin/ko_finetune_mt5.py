@@ -9,20 +9,6 @@ import evaluate
 import numpy as np
 load_dotenv()
 
-
-import torch
-import torch.distributed as dist 
-use_cuda = torch.cuda.is_available()
-
-
-def setup_distributed():
-    if 'WORLD_SIZE' in os.environ:
-        dist.init_process_group(backend='nccl')
-        torch.cuda.set_device(int(os.environ['LOCAL_RANK']))
-
-# Call this before creating model and trainer
-setup_distributed()
-
 HF_KEY = os.getenv("HF_KEY")
 login("") # HF_KEY 
 
@@ -139,6 +125,7 @@ training_args = Seq2SeqTrainingArguments(
     logging_steps=10,
     report_to=["tensorboard"],
     gradient_checkpointing=True,
+    generation_max_length=128,
 )
 
 
@@ -205,7 +192,7 @@ def validate_translations(model, tokenizer, test_samples=5):
         inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=256)
         outputs = model.generate(
             inputs.input_ids.to(model.device),
-            max_length=256,
+            max_length=128,
             num_beams=5,
             length_penalty=0.6,
             early_stopping=True

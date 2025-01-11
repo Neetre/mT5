@@ -9,10 +9,9 @@ da modificare per adattarlo al nostro caso
 from unsloth import FastLanguageModel
 import torch
 from prep_dataset import create_datasets
-from dotenv import load_dotenv
-load_dotenv()
 
-HUGGINGFACE_TOKEN = ""
+
+HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
 
 max_seq_length = 4096 # Choose any! We auto support RoPE Scaling internally! Suggested 4096, 8192, 16384
 dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+

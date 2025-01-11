@@ -6,6 +6,7 @@ tiktoken
 sentencepiece
 python-dotenv
 torch
-transformers[torch]
 protobuf
 tensorboard
+unsloth
+trl

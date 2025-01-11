@@ -13,7 +13,7 @@ latest_checkpoint = "KoLama"
 model = AutoModelForSeq2SeqLM.from_pretrained(latest_checkpoint)
 tokenizer = AutoTokenizer.from_pretrained(latest_checkpoint)
 
-repo_name = "Neetree/koen_mT5"
+repo_name = "Neetree/KoLama"
 model.push_to_hub(repo_name)
 tokenizer.push_to_hub(repo_name)
 

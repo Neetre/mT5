@@ -34,7 +34,7 @@ fourbit_models = [
 ] # More models at https://huggingface.co/unsloth
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "unsloth/Meta-Llama-3.1-8B",
+    model_name = "unsloth/Meta-Llama-3.1-8B-bnb-4bit",
     max_seq_length = max_seq_length,
     dtype = dtype,
     load_in_4bit = load_in_4bit,
@@ -73,11 +73,11 @@ trainer = SFTTrainer(
     dataset_num_proc = 2,
     packing = False, # Can make training 5x faster for short sequences.
     args = TrainingArguments(
-        per_device_train_batch_size = 16,
-        gradient_accumulation_steps = 16,
+        per_device_train_batch_size = 128,
+        gradient_accumulation_steps = 1,
         warmup_steps = 500,  # 50
         # num_train_epochs = 1, # Set this for 1 full training run.
-        max_steps=10000,  # 1000
+        max_steps=1000,  # 1000
         learning_rate = 3e-4,
         fp16 = not is_bfloat16_supported(),
         bf16 = is_bfloat16_supported(),

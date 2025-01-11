@@ -2,8 +2,9 @@ from huggingface_hub import login
 from dotenv import load_dotenv
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoProcessor
-from transformers import AutoModelForSeq2SeqLM, Seq2SeqTrainingArguments, Seq2SeqTrainer
+from transformers import AutoModelForSeq2SeqLM, Seq2SeqTrainer
 from transformers import DataCollatorForSeq2Seq
+from optimization import setup_training_environment, optimize_model_memory, GPU_CONFIGS, DatasetOptimizer
 import os
 import evaluate
 import numpy as np
@@ -11,6 +12,8 @@ load_dotenv()
 
 HF_KEY = os.getenv("HF_KEY")
 login("") # HF_KEY 
+
+gpu_type = "A100_80"
 
 dataset = load_dataset("Neetree/raw_enko_opus_CCM")
 dataset = dataset["train"].train_test_split(test_size=0.2)
@@ -22,19 +25,22 @@ print(dataset)
 checkpoint = "google/mt5-base"
 processor = AutoTokenizer.from_pretrained(checkpoint)
 
+dataset_optimizer = DatasetOptimizer(GPU_CONFIGS[gpu_type])
+optimized_dataset = dataset_optimizer.optimize_dataset(dataset, processor)
+
 source_lang = "en"
 target_lang = "ko"
-prefix = "translate English to Korean: "
+# prefix = "translate English to Korean: "
 
 def preprocess_function(examples):
-    inputs = [prefix + example[source_lang] for example in examples["translation"]]
+    inputs = [example[source_lang] for example in examples["translation"]]
     targets = [example[target_lang] for example in examples["translation"]]
 
     model_inputs = processor(
         inputs,
         text_target=targets,
         max_length=128,
-        padding="max_length",
+        padding=True,
         truncation=True,
         return_tensors="pt"
     )
@@ -46,7 +52,7 @@ def preprocess_function(examples):
     
     return model_inputs
 
-tokenized_dataset = dataset.map(preprocess_function, batched=True)
+tokenized_dataset = optimized_dataset.map(preprocess_function, batched=True)
 
 def verify_dataset(dataset, processor):
     for i in range(3):
@@ -85,7 +91,7 @@ def compute_metrics(eval_preds):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
-
+        
     decoded_preds = processor.batch_decode(preds, skip_special_tokens=True)
     labels = np.where(labels != -100, labels, processor.pad_token_id)
     decoded_labels = processor.batch_decode(labels, skip_special_tokens=True)
@@ -93,41 +99,15 @@ def compute_metrics(eval_preds):
     decoded_preds = [pred.strip() for pred in decoded_preds]
     decoded_labels = [[label.strip()] for label in decoded_labels]
 
+    metric = evaluate.load("sacrebleu")
     result = metric.compute(predictions=decoded_preds, references=decoded_labels)
-    result = {"bleu": result["score"]}
-
-    prediction_lens = [np.count_nonzero(pred != processor.pad_token_id) for pred in preds]
-    result["gen_len"] = np.mean(prediction_lens)
-
-    result = {k: round(v, 4) for k, v in result.items()}
-    return result
+    
+    return {"bleu": result["score"]}
 
 model = AutoModelForSeq2SeqLM.from_pretrained(checkpoint)
 
-
-training_args = Seq2SeqTrainingArguments(
-    output_dir="koen_mT5",
-    evaluation_strategy="steps",
-    eval_steps=100,
-    save_strategy="steps",
-    save_steps=100,
-    learning_rate=2e-5,
-    per_device_train_batch_size=4, # 16 for A100, oppure 32
-    per_device_eval_batch_size=4,  # 16 for A100, e 16
-    gradient_accumulation_steps=4,
-    weight_decay=0.01,
-    save_total_limit=3,
-    num_train_epochs=2,
-    predict_with_generate=True,
-    fp16=False,  # Disable fp16 for debugging, no because of memory issues, too little for the tokenization
-    bf16=True,
-    logging_dir="./logs",
-    logging_steps=10,
-    report_to=["tensorboard"],
-    gradient_checkpointing=True,
-    generation_max_length=128,
-)
-
+training_args, memory_tracker  = setup_training_environment("koen_mT5", gpu_type)  # 4090, A100_40, A100_80, H100
+model = optimize_model_memory(model, GPU_CONFIGS[gpu_type])
 
 def check_model_updates(model, inputs):
     initial_params = {name: param.clone() for name, param in model.named_parameters()}
@@ -148,21 +128,19 @@ def check_model_updates(model, inputs):
             print(f"{name}: grad_norm={grad_norm:.6f}, param_norm={param_norm:.6f}, initial_param_norm={initial_param_norm:.6f}, param_change_norm={param_change_norm:.6f}")
 
 
-class CustomSeq2SeqTrainer(Seq2SeqTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
-        print(f"Current loss: {loss.item()}")
-        return (loss, outputs) if return_outputs else loss
-
-
-trainer = CustomSeq2SeqTrainer(
+class CustomTrainer(Seq2SeqTrainer):
+    def __init__(self, memory_tracker, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_callback(memory_tracker)
+        
+trainer = CustomTrainer(
+    memory_tracker=memory_tracker,
     model=model,
     args=training_args,
-    train_dataset=tokenized_dataset["train"],
-    eval_dataset=tokenized_dataset["test"],
+    train_dataset=optimized_dataset["train"],
+    eval_dataset=optimized_dataset["test"],
     tokenizer=processor,
-    data_collator=data_collator,
-    compute_metrics=compute_metrics,
+    compute_metrics=compute_metrics
 )
 
 print("Verifying training data...")
@@ -173,6 +151,11 @@ sample_batch = next(iter(trainer.get_train_dataloader()))
 check_model_updates(model, sample_batch)
 
 trainer.train()
+
+print(f"Peak memory usage: {memory_tracker.peak_memory:.2f} GB")
+print("\nMemory trace:")
+for checkpoint in memory_tracker.memory_trace:
+    print(f"Time: {checkpoint['time']:.2f}s, GPU Memory: {checkpoint['gpu_allocated']:.2f} GB")
 
 trainer.push_to_hub()
 
@@ -203,17 +186,16 @@ def validate_translations(model, tokenizer, test_samples=5):
 
 
 def translate_text(text, model, tokenizer):
-    input_text = f"translate English to Korean: {text}"
-    inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=256)
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
     outputs = model.generate(
         inputs.input_ids,
-        max_length=256,
+        max_length=128,
         num_beams=5,
-        length_penalty=0.6,
+        length_penalty=1.0,
         early_stopping=True,
         do_sample=False,
-        temperature=1.0,
-        no_repeat_ngram_size=3
+        temperature=0.7,
+        no_repeat_ngram_size=2
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 

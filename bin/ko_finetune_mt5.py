@@ -15,6 +15,8 @@ login("") # HF_KEY
 
 gpu_type = "A100_80"
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 dataset = load_dataset("Neetree/raw_enko_opus_CCM")
 dataset = dataset["train"].train_test_split(test_size=0.2)
 print(dataset)
@@ -52,7 +54,7 @@ def preprocess_function(examples):
     
     return model_inputs
 
-tokenized_dataset = optimized_dataset.map(preprocess_function, batched=True)
+tokenized_dataset = optimized_dataset.map(preprocess_function, batched=True, remove_columns=["id", "length", "translation"])
 
 def verify_dataset(dataset, processor):
     for i in range(3):
@@ -91,8 +93,10 @@ def compute_metrics(eval_preds):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
-        
+    
+    preds = np.where((preds >= 0) & (preds < processor.vocab_size), preds, processor.unk_token_id)
     decoded_preds = processor.batch_decode(preds, skip_special_tokens=True)
+
     labels = np.where(labels != -100, labels, processor.pad_token_id)
     decoded_labels = processor.batch_decode(labels, skip_special_tokens=True)
 
@@ -137,9 +141,10 @@ trainer = CustomTrainer(
     memory_tracker=memory_tracker,
     model=model,
     args=training_args,
-    train_dataset=optimized_dataset["train"],
-    eval_dataset=optimized_dataset["test"],
+    train_dataset=tokenized_dataset["train"],
+    eval_dataset=tokenized_dataset["test"],
     tokenizer=processor,
+    data_collator=data_collator,
     compute_metrics=compute_metrics
 )
 
@@ -150,7 +155,14 @@ print("\nChecking initial model state...")
 sample_batch = next(iter(trainer.get_train_dataloader()))
 check_model_updates(model, sample_batch)
 
-trainer.train()
+try:
+    print("Training model...")
+    trainer.train()
+except KeyboardInterrupt:
+    print("Training interrupted")
+except Exception as e:
+    print(f"Training failed: {e}")
+    model.save_pretrained("koen_mT5")
 
 print(f"Peak memory usage: {memory_tracker.peak_memory:.2f} GB")
 print("\nMemory trace:")

@@ -1,6 +1,7 @@
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from huggingface_hub import login
 import os
+from unsloth import FastLanguageModel
 
 token = input("Insert your huggingface token: ")
 login(token)
@@ -12,9 +13,9 @@ login(token)
 latest_checkpoint = "KoLama"
 model = AutoModelForSeq2SeqLM.from_pretrained(latest_checkpoint)
 tokenizer = AutoTokenizer.from_pretrained(latest_checkpoint)
-
+model = FastLanguageModel
 repo_name = "Neetree/KoLama"
-model.push_to_hub(repo_name)
-tokenizer.push_to_hub(repo_name)
+if True: model.save_pretrained_merged("KoLama", tokenizer, save_method = "merged_16bit",)
+if True: model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method = "merged_16bit", token = token)
 
 print(f"Model and tokenizer pushed to {repo_name} from checkpoint {latest_checkpoint}")

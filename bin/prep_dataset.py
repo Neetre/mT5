@@ -2,8 +2,8 @@ from huggingface_hub import login
 from datasets import load_dataset
 
 # Login to the Hugging Face Hub
-HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
-login(HUGGINGFACE_TOKEN)
+# HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
+# login(HUGGINGFACE_TOKEN)
 
 INSTRUCTION = "Translate the following text from English to Korean:"
 

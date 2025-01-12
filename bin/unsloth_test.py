@@ -9,11 +9,12 @@ da modificare per adattarlo al nostro caso
 from unsloth import FastLanguageModel
 import torch
 from prep_dataset import create_datasets
+from evaluate import load
 
 
 HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
 
-max_seq_length = 4096 # Choose any! We auto support RoPE Scaling internally! Suggested 4096, 8192, 16384
+max_seq_length = 1024 # Choose any! We auto support RoPE Scaling internally! Suggested 4096, 8192, 16384
 dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
 load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be False.
 
@@ -70,50 +71,44 @@ trainer = SFTTrainer(
     train_dataset = train_dataset,
     dataset_text_field = "text",
     max_seq_length = max_seq_length,
-    dataset_num_proc = 2,
-    packing = False, # Can make training 5x faster for short sequences.
+    dataset_num_proc = 4,
+    packing = True, # Can make training 5x faster for short sequences.
     args = TrainingArguments(
-        per_device_train_batch_size = 128,
-        gradient_accumulation_steps = 1,
-        warmup_steps = 50,  # 50
-        # num_train_epochs = 1, # Set this for 1 full training run.
-        max_steps=200,  # 1000
-        learning_rate = 3e-4,
-        fp16 = not is_bfloat16_supported(),
-        bf16 = is_bfloat16_supported(),
-        logging_steps = 10,
-        optim = "adamw_8bit",
-        weight_decay = 0.01,
-        lr_scheduler_type = "linear",
-        seed = 3407,
-        output_dir = "outputs",
-        report_to = "none", # Use this for WandB etc
+        per_device_train_batch_size=32,
+        gradient_accumulation_steps=1,
+        warmup_steps=50,
+        num_train_epochs=3,  # Train for 3 epochs
+        learning_rate=3e-4,
+        fp16=not is_bfloat16_supported(),
+        bf16=is_bfloat16_supported(),
+        logging_steps=10,
+        optim="adamw_8bit",
+        weight_decay=0.01,
+        lr_scheduler_type="linear",
+        seed=3407,
+        output_dir="outputs",
+        report_to="none",
     ),
 )
 
 trainer_stats = trainer.train() # Train the model!
 
-# evaluation
-FastLanguageModel.for_inference(model) # Enable native 2x faster inference
-inputs = tokenizer(
-    [train_dataset[0]["text"]],
-    return_tensors = "pt",
-).to(model.device)
+bleu = load("bleu")
 
-from transformers import TextStreamer
-text_streamer = TextStreamer(tokenizer)
-output = model.generate(**inputs, streamer = text_streamer, max_new_tokens = 2048)
-print(tokenizer.decode(output[0], skip_special_tokens = True)) # Print the generated text
+def evaluate_model(model, tokenizer, test_dataset):
+    predictions = []
+    references = []
+    for example in test_dataset:
+        inputs = tokenizer(example["text"], return_tensors="pt").to(model.device)
+        output = model.generate(**inputs, max_new_tokens=512)
+        prediction = tokenizer.decode(output[0], skip_special_tokens=True)
+        predictions.append(prediction)
+        references.append(example["text"].split("=>")[1].strip())
+    return bleu.compute(predictions=predictions, references=references)
 
-# Save the model
-# Merge to 16bit
-if True: model.save_pretrained_merged("KoLama", tokenizer, save_method = "merged_16bit",)
-if True: model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method = "merged_16bit", token = HUGGINGFACE_TOKEN)
+bleu_score = evaluate_model(model, tokenizer, test_dataset)
+print(f"BLEU Score: {bleu_score}")
 
-# Merge to 4bit
-if False: model.save_pretrained_merged("model", tokenizer, save_method = "merged_4bit",)
-if False: model.push_to_hub_merged("hf/model", tokenizer, save_method = "merged_4bit", token = HUGGINGFACE_TOKEN)
 
-# Just LoRA adapters
-if False: model.save_pretrained_merged("model", tokenizer, save_method = "lora",)
-if False: model.push_to_hub_merged("hf/model", tokenizer, save_method = "lora", token = HUGGINGFACE_TOKEN)
+model.save_pretrained_merged("KoLama", tokenizer, save_method="merged_16bit")
+model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method="merged_16bit", token=HUGGINGFACE_TOKEN)

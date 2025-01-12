@@ -16,21 +16,7 @@ def combine_texts(example):
     Returns:
         dict: A dictionary containing the formatted 'text' key.
     """
-    instruction = INSTRUCTION
-    prompt = example['translation']['en']
-    answer = example['translation']['ko']
-    combined = {
-        "text": f"""
-{instruction}
-
-### Prompt
-{prompt}
-
-### Answer
-{answer}
-"""
-    }
-    return combined
+    return f"Translate English to Korean: {example['english']} => {example['korean']}"
 
 def clean_test(example):
     """
@@ -42,9 +28,8 @@ def clean_test(example):
         dict: A modified example with an empty 'Answer' section.
     """
     text = example['text']
-    # Split and remove the Answer part
-    text = text.split("### Answer")[0]
-    text += "### Answer\n"  # Add an empty answer section
+    text = text.split("=> ")[0]
+    text += " => \n"
     return {"text": text}
 
 def create_datasets():
@@ -57,9 +42,10 @@ def create_datasets():
     test_dataset = test_dataset.map(clean_test)
 
     train_dataset = finetuning_dataset.train_test_split(test_size=0.1)['train']
-    test_dataset = finetuning_dataset.train_test_split(test_size=0.1)['test']  # Cleaned dataset already processed
+    test_dataset = finetuning_dataset.train_test_split(test_size=0.1)['test']
 
     print(train_dataset)
     print(test_dataset)
+    print(test_dataset[0])
 
     return train_dataset, test_dataset

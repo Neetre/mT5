@@ -64,7 +64,7 @@ model = FastLanguageModel.get_peft_model(
 )
 
 
-train_dataset, test_dataset = create_datasets()
+train_dataset, test_dataset, test_dataset_no_asw = create_datasets()
 
 trainer = SFTTrainer(
     model = model,
@@ -72,10 +72,10 @@ trainer = SFTTrainer(
     train_dataset = train_dataset,
     dataset_text_field = "text",
     max_seq_length = max_seq_length,
-    dataset_num_proc = 4,
+    dataset_num_proc = 20,
     packing = True, # Can make training 5x faster for short sequences.
     args = TrainingArguments(
-        per_device_train_batch_size=64,
+        per_device_train_batch_size=128,
         gradient_accumulation_steps=32,
         warmup_steps=500,
         num_train_epochs=3,  # Train for 3 epochs
@@ -92,26 +92,43 @@ trainer = SFTTrainer(
     ),
 )
 
-trainer_stats = trainer.train() # Train the model!
+try:
+    trainer_stats = trainer.train() # Train the model!
+except Exception as e:
+    print(f"Training failed with error: {e}")
+    wandb.log({"Training Error": str(e)})
+    raise e
 
-bleu = load("bleu")
+FastLanguageModel.for_inference(model)
 
-def evaluate_model(model, tokenizer, test_dataset):
-    predictions = []
-    references = []
-    for example in test_dataset:
-        inputs = tokenizer(example["text"], return_tensors="pt").to(model.device)
-        output = model.generate(**inputs, max_new_tokens=512)
-        prediction = tokenizer.decode(output[0], skip_special_tokens=True)
-        predictions.append(prediction)
-        references.append(example["text"].split("=>")[1].strip())
-    return bleu.compute(predictions=predictions, references=references)
+try:
+    bleu = load("bleu")
 
-bleu_score = evaluate_model(model, tokenizer, test_dataset)
-print(f"BLEU Score: {bleu_score}")
-wandb.log({"BLEU Score": bleu_score["bleu"]})
+    def evaluate_model(model, tokenizer, test_dataset, test_dataset_no_asw):
+        predictions = []
+        references = []
+        for example, example_no_asw in zip(test_dataset, test_dataset_no_asw):
+            inputs = tokenizer(example_no_asw["text"], return_tensors="pt").to(model.device)
+            output = model.generate(**inputs, max_new_tokens=512)
+            prediction = tokenizer.decode(output[0], skip_special_tokens=True)
+            predictions.append(prediction)
+            references.append(example["text"].split("=>")[1].strip())
+        return bleu.compute(predictions=predictions, references=references)
 
-model.save_pretrained_merged("KoLama", tokenizer, save_method="merged_16bit")
-model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method="merged_16bit", token=HUGGINGFACE_TOKEN)
+    bleu_score = evaluate_model(model, tokenizer, test_dataset)
+    print(f"BLEU Score: {bleu_score}")
+    wandb.log({"BLEU Score": bleu_score["bleu"]})
+except Exception as e:
+    print(f"Evaluation failed with error: {e}")
+    wandb.log({"Evaluation Error": str(e)})
+    raise e
+
+try:
+    model.save_pretrained_merged("KoLama", tokenizer, save_method="merged_16bit")
+    model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method="merged_16bit", token=HUGGINGFACE_TOKEN)
+except Exception as e:
+    print(f"Model saving failed with error: {e}")
+    wandb.log({"Model Saving Error": str(e)})
+    raise e
 
 wandb.finish()

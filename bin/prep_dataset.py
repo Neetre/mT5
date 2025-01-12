@@ -2,8 +2,8 @@ from huggingface_hub import login
 from datasets import load_dataset
 
 # Login to the Hugging Face Hub
-# HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
-# login(HUGGINGFACE_TOKEN)
+HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
+login(HUGGINGFACE_TOKEN)
 
 INSTRUCTION = "Translate the following text from English to Korean:"
 
@@ -28,7 +28,7 @@ def clean_test(example):
         dict: A modified example with an empty 'Answer' section.
     """
     text = example['text']
-    text = text.split("=> ")[0]
+    text = text.split(" => ")[0]
     text += " => \n"
     return {"text": text}
 
@@ -36,16 +36,16 @@ def create_datasets():
     dataset = load_dataset("Neetree/raw_enko_opus_CCM")  # Structure: {'id': '0', 'translation': {'en': '...', 'ko': '...'}}
     dataset = dataset["train"].train_test_split(test_size=0.2)
 
-    finetuning_dataset = dataset['train'].map(combine_texts, remove_columns=["id", "translation"])
+    train_dataset = dataset['train'].map(combine_texts, remove_columns=["id", "translation"])
     test_dataset = dataset['test'].map(combine_texts, remove_columns=["id", "translation"])
 
-    test_dataset = test_dataset.map(clean_test)
-
-    train_dataset = finetuning_dataset.train_test_split(test_size=0.1)['train']
-    test_dataset = finetuning_dataset.train_test_split(test_size=0.1)['test']
+    test_dataset_no_asw = test_dataset.map(clean_test)
 
     print(train_dataset)
     print(test_dataset)
     print(test_dataset[0])
 
-    return train_dataset, test_dataset
+    return train_dataset, test_dataset, test_dataset_no_asw
+
+
+train_dataset, test_dataset = create_datasets()

@@ -6,10 +6,16 @@ da modificare per adattarlo al nostro caso
 
 '''
 
-from unsloth import FastLanguageModel
-import torch
 from prep_dataset import create_datasets
+from unsloth import FastLanguageModel, is_bfloat16_supported
+import torch
+from datasets import Dataset
+from trl import SFTTrainer
+from transformers import TrainingArguments, TextStreamer
 from evaluate import load
+import wandb
+
+wandb.init(project="english-to-korean-translation", name="llama-3.1-8b-finetune")
 
 
 HUGGINGFACE_TOKEN = input("Inserisci il tuo token huggingface: ")
@@ -60,11 +66,6 @@ model = FastLanguageModel.get_peft_model(
 
 train_dataset, test_dataset = create_datasets()
 
-
-from trl import SFTTrainer
-from transformers import TrainingArguments
-from unsloth import is_bfloat16_supported
-
 trainer = SFTTrainer(
     model = model,
     tokenizer = tokenizer,
@@ -87,7 +88,7 @@ trainer = SFTTrainer(
         lr_scheduler_type="linear",
         seed=3407,
         output_dir="outputs",
-        report_to="none",
+        report_to="wandb",
     ),
 )
 
@@ -108,7 +109,9 @@ def evaluate_model(model, tokenizer, test_dataset):
 
 bleu_score = evaluate_model(model, tokenizer, test_dataset)
 print(f"BLEU Score: {bleu_score}")
-
+wandb.log({"BLEU Score": bleu_score["bleu"]})
 
 model.save_pretrained_merged("KoLama", tokenizer, save_method="merged_16bit")
 model.push_to_hub_merged("Neetree/KoLama", tokenizer, save_method="merged_16bit", token=HUGGINGFACE_TOKEN)
+
+wandb.finish()

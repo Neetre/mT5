@@ -4,6 +4,10 @@
 
 This is a repository for the finetune of the mT5 model on the Opus dataset for the translation task. The model is trained on the English to Korean translation task, and then English to Chinese translation task. The model is evaluated on the sacrebleu score metric.
 
+More on the project can be found [here](https://github.com/Neetre/translator.git)
+
+Model hf name: `Neetree/KoLama`
+
 ## Dataset
 
 The dataset used for the training is the Opus dataset. The dataset is a collection of translated texts from various sources and is available in multiple languages. The dataset is available at [Opus](http://opus.nlpl.eu/).
